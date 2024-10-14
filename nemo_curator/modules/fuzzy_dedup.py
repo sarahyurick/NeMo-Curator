@@ -128,15 +128,26 @@ class MinHash:
         return gen.randint(0, 1e6, size=n_seeds)
 
     def minhash32(
-        self, ser: cudf.Series, seeds: np.ndarray, char_ngram: int
+        self, ser: cudf.Series, seeds: np.ndarray, char_ngram: int, filename_ser: cudf.Series,
     ) -> cudf.Series:
         """
         Compute 32bit minhashes based on the MurmurHash3 algorithm
         """
         if not isinstance(ser, cudf.Series):
             raise TypeError("Expected data of type cudf.Series")
+
+        st = time.time()
         seeds = cudf.Series(seeds, dtype="uint32")
-        return ser.str.minhash(seeds=seeds, width=char_ngram)
+        result = ser.str.minhash(seeds=seeds, width=char_ngram)
+
+        if (time.time() - st) > 50:
+            self._logger.info("====================================================================================================")
+            self._logger.info(f"It took {time.time() - st} seconds to compute minhashes for this dataset")
+            self._logger.info("Here are the files involved:")
+            self._logger.info(filename_ser.unique().compute())
+            self._logger.info("====================================================================================================")
+
+        return result
 
     def minhash64(
         self, ser: cudf.Series, seeds: np.ndarray, char_ngram: int
@@ -160,12 +171,14 @@ class MinHash:
         -------
         DocumentDataset containing IDs of all documents and the corresponding MinHash Signature
         """
-        result = dataset.df[[self.id_field]]
+        result = dataset.df[[self.id_field, "filename"]]
         result["_minhash_signature"] = dataset.df[self.text_field].map_partitions(
             self.minhash_method,
             seeds=self.seeds,
             char_ngram=self.char_ngram,
+            filename_ser=dataset.df["filename"],
         )
+        result = result.drop(columns="filename")
 
         if self.cache_dir is None:
             return DocumentDataset(result)

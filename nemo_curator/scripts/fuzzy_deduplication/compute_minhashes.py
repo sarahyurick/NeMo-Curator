@@ -76,9 +76,9 @@ def main(args):
             file_type="jsonl",
             backend="cudf",
             files_per_partition=args.files_per_partition,
-            add_filename=False,
+            add_filename=True,
             input_meta=args.input_meta,
-        )[[id_field, text_field]]
+        )[[id_field, text_field, "filename"]]
 
         if num_files is not None:
             num_files -= len(files)
