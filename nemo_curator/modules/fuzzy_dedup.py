@@ -65,6 +65,10 @@ from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import (
 )
 
 
+def unique_filenames(partition):
+    return partition["filename"].unique()
+
+
 class MinHash:
     """
     Computes minhash signatures of a document corpus
@@ -128,23 +132,22 @@ class MinHash:
         return gen.randint(0, 1e6, size=n_seeds)
 
     def minhash32(
-        self, ser: cudf.Series, seeds: np.ndarray, char_ngram: int, filename_ser: cudf.Series,
+            self, partition, seeds, char_ngram,
     ) -> cudf.Series:
         """
         Compute 32bit minhashes based on the MurmurHash3 algorithm
         """
-        if not isinstance(ser, cudf.Series):
-            raise TypeError("Expected data of type cudf.Series")
-
         st = time.time()
         seeds = cudf.Series(seeds, dtype="uint32")
-        result = ser.str.minhash(seeds=seeds, width=char_ngram)
+        result = partition[self.text_field].str.minhash(seeds=seeds, width=char_ngram)
 
         if (time.time() - st) > 50:
             self._logger.info("====================================================================================================")
             self._logger.info(f"It took {time.time() - st} seconds to compute minhashes for this dataset")
             self._logger.info("Here are the files involved:")
-            self._logger.info(filename_ser.unique().compute())
+            unique_vals = unique_filenames(partition)
+            unique_filenames_set = set(unique_vals.to_arrow())
+            self._logger.info(unique_filenames_set)
             self._logger.info("====================================================================================================")
 
         return result
@@ -172,11 +175,10 @@ class MinHash:
         DocumentDataset containing IDs of all documents and the corresponding MinHash Signature
         """
         result = dataset.df[[self.id_field, "filename"]]
-        result["_minhash_signature"] = dataset.df[self.text_field].map_partitions(
+        result["_minhash_signature"] = dataset.df.map_partitions(
             self.minhash_method,
             seeds=self.seeds,
             char_ngram=self.char_ngram,
-            filename_ser=dataset.df["filename"],
         )
         result = result.drop(columns="filename")
 
