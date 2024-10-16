@@ -63,6 +63,7 @@ from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import (
     text_bytes_aware_shuffle,
     write_partitioned_file,
 )
+import random
 
 
 def unique_filenames(partition):
@@ -131,9 +132,7 @@ class MinHash:
         gen = np.random.RandomState(seed)
         return gen.randint(0, 1e6, size=n_seeds)
 
-    def minhash32(
-            self, partition, seeds, char_ngram,
-    ) -> cudf.Series:
+    def minhash32(self, partition, seeds, char_ngram) -> cudf.Series:
         """
         Compute 32bit minhashes based on the MurmurHash3 algorithm
         """
@@ -141,14 +140,16 @@ class MinHash:
         seeds = cudf.Series(seeds, dtype="uint32")
         result = partition[self.text_field].str.minhash(seeds=seeds, width=char_ngram)
 
-        if (time.time() - st) > 50:
-            self._logger.info("====================================================================================================")
-            self._logger.info(f"It took {time.time() - st} seconds to compute minhashes for this dataset")
-            self._logger.info("Here are the files involved:")
+        et = time.time() - st
+        if et > 50:
             unique_vals = unique_filenames(partition)
             unique_filenames_set = set(unique_vals.to_arrow())
-            self._logger.info(unique_filenames_set)
-            self._logger.info("====================================================================================================")
+            with open(f"/home/syurick/common-dask-workflow/nemo-curator-jobs/test1/log_{random.randint(1, 1_000_000)}.txt", "w") as f:
+                f.write("==========\n")
+                f.write(f"It took {et} seconds to compute minhashes for this dataset\n")
+                f.write("Here are the files involved:\n")
+                f.write(str(unique_filenames_set))
+                f.write("\n==========\n")
 
         return result
 
@@ -174,6 +175,7 @@ class MinHash:
         -------
         DocumentDataset containing IDs of all documents and the corresponding MinHash Signature
         """
+        self._logger.info("Testing logger from __call__")
         result = dataset.df[[self.id_field, "filename"]]
         result["_minhash_signature"] = dataset.df.map_partitions(
             self.minhash_method,
